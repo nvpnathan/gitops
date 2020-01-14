@@ -100,35 +100,44 @@ spec:
             cp -a web/templates/stats html/ &&
             until docker ps; do sleep 3; done; docker build -t harbor.vballin.com/go-reminders/go-reminders . &&
             echo '192.168.76.5 harbor.vballin.com' >> /etc/hosts &&
-            while true; do sleep 30; done;
-            docker login harbor.vballin.com -u admin -p '$HARBORPASSWORD' &&
+            docker login harbor.vballin.com -u admin -p $HARBORPASSWORD &&
             docker push harbor.vballin.com/go-reminders/go-reminders"]
       # To access secrets as environment variables, use the k8s valueFrom and
       # secretKeyRef constructs.
       env:
+      - name: DOCKER_HOST               # the docker daemon can be access on the standard port on localhost
+        value: 127.0.0.1
       - name: HARBORPASSWORD  # name of env var
         valueFrom:
           secretKeyRef:
             name: harbor    # name of an existing k8s secret
             key: password     # 'key' subcomponent of the secret
-      volumeMounts:
-      - name: harbor-secret-vol     # mount file containing secret at /secret/mountpath
-        mountPath: "/secret/mountpath"
-      env:
       - name: HARBORCERT  # name of env var
         valueFrom:
           secretKeyRef:
             name: harbor-cert    # name of an existing k8s secret
-            key: ca.pem     # 'key' subcomponent of the secret
+            key: ca.crt     # 'key' subcomponent of the secret
       volumeMounts:
+      - name: harbor-secret-vol     # mount file containing secret at /secret/mountpath
+        mountPath: "/secret/mountpath"
       - name: harbor-cert-vol     # mount file containing secret at /secret/mountpath
         mountPath: "/etc/docker/certs.d/harbor.vballin.com"
-      env:
-      - name: DOCKER_HOST               # the docker daemon can be access on the standard port on localhost
-        value: 127.0.0.1
     sidecars:
     - name: dind
       image: docker:17.10-dind          # Docker already provides an image for running a Docker daemon
+      env:
+      - name: DOCKER_HOST               # the docker daemon can be access on the standard port on localhost
+        value: 127.0.0.1
+      - name: HARBORPASSWORD  # name of env var
+        valueFrom:
+          secretKeyRef:
+            name: harbor    # name of an existing k8s secret
+            key: password     # 'key' subcomponent of the secret
+      - name: HARBORCERT  # name of env var
+        valueFrom:
+          secretKeyRef:
+            name: harbor-cert    # name of an existing k8s secret
+            key: ca.crt     # 'key' subcomponent of the secret
       securityContext:
         privileged: true                # the Docker daemon can only run in a privileged container
       # mirrorVolumeMounts will mount the same volumes specified in the main container
