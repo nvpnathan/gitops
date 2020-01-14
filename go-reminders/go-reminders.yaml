@@ -1,0 +1,66 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: go-reminders
+
+spec:
+  entrypoint: go-reminders
+  arguments:
+    parameters:
+    - name: repo
+      value: https://github.com/vmware/go-reminders.git
+    - name: revision
+      value: master
+
+  templates:
+  - name: go-reminders
+    steps:
+    - - name: checkout
+        template: checkout  
+    - - name: build
+        template: build
+        arguments:
+          artifacts:
+          - name: source
+            from: "{{steps.checkout.outputs.artifacts.source}}"
+
+  - name: checkout
+    inputs:
+      artifacts:
+      - name: source
+        path: /src
+        git:
+          repo: "{{workflow.parameters.repo}}"
+          revision: "{{workflow.parameters.revision}}"
+    outputs:
+      artifacts:
+      - name: source
+        path: /src
+    container:
+      image: golang:1.13.4
+      command: ["/bin/sh", "-c"]
+      args: ["cd /src && git status && ls -l"]
+
+  - name: build
+    inputs:
+      artifacts:
+      - name: source
+        path: /go/src/github.com/vmware/go-reminders
+    outputs:
+      artifacts:
+      - name: go-reminders
+        path: /go/src/github.com/vmware/go-reminders/cmd/go-reminders
+    container:
+      image: golang:1.13.4
+      command: ["/bin/sh", "-c"]
+      args: ["
+        cd /go/src/github.com/vmware/go-reminders &&
+        git submodule init &&
+        git submodule update --recursive &&
+        export CONTAINER=harbor.vballin.com/go-reminders/go-reminders &&
+        make
+      "]
+      resources:
+        requests:
+          memory: 1024Mi
+          cpu: 200m
