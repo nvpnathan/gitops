@@ -1,0 +1,138 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: go-reminders
+
+spec:
+  entrypoint: go-reminders
+  volumes:
+  - name: harbor-secret-vol
+    secret:
+      secretName: harbor
+  - name: harbor-cert-vol
+    secret:
+      secretName: harbor-cert
+  arguments:
+    parameters:
+    - name: repo
+      value: https://github.com/tkrausjr/go-reminders.git
+    - name: revision
+      value: master
+
+  templates:
+  - name: go-reminders
+    steps:
+    - - name: checkout
+        template: checkout  
+    - - name: build
+        template: build
+        arguments:
+          artifacts:
+          - name: source
+            from: "{{steps.checkout.outputs.artifacts.source}}"
+    - - name: dind-build
+        template: dind-build
+        arguments:
+          artifacts:
+          - name: source
+            from: "{{steps.checkout.outputs.artifacts.source}}"
+          - name: go-reminders
+            from: "{{steps.build.outputs.artifacts.go-reminders}}"
+
+  - name: checkout
+    inputs:
+      artifacts:
+      - name: source
+        path: /src
+        git:
+          repo: "{{workflow.parameters.repo}}"
+          revision: "{{workflow.parameters.revision}}"
+    outputs:
+      artifacts:
+      - name: source
+        path: /src
+    container:
+      image: golang:1.13.4
+      command: ["/bin/sh", "-c"]
+      args: ["cd /src && git status && ls -l"]
+
+  - name: build
+    inputs:
+      artifacts:
+      - name: source
+        path: /go/src/github.com/tkrausjr/go-reminders
+    outputs:
+      artifacts:
+      - name: go-reminders
+        path: /go/src/github.com/tkrausjr/go-reminders/cmd/go-reminders
+    container:
+      image: golang:1.13.4
+      command: ["/bin/sh", "-c"]
+      args: ["
+        cd /go/src/github.com/tkrausjr/go-reminders &&
+        git submodule init &&
+        git submodule update --recursive &&
+        export CONTAINER=harbor.vballin.com/go-reminders/go-reminders &&
+        make
+      "]
+      resources:
+        requests:
+          memory: 1024Mi
+          cpu: 200m
+
+  - name: dind-build
+    inputs:
+      artifacts:
+      - name: go-reminders
+        path: /go/src/github.com/tkrausjr/go-reminders/cmd/go-reminders
+      - name: source
+        path: /go/src/github.com/tkrausjr/go-reminders
+    container:
+      image: docker:17.10
+      securityContext:
+        privileged: true
+      command: [sh, -c]
+      args: ["cd /go/src/github.com/tkrausjr/go-reminders/ &&
+            mkdir -p html/skeleton &&
+            cp -a web/static/Skeleton/css html/skeleton/ &&
+            cp -a web/static/Skeleton/images html/skeleton/ &&
+            cp -a web/templates/tmpl html/ &&
+            cp -a web/templates/stats html/ &&
+            until docker ps; do sleep 3; done; docker build -t harbor.vballin.com/go-reminders/go-reminders . &&
+            echo '192.168.76.5 harbor.vballin.com' >> /etc/hosts &&
+            while true; do sleep 30; done;
+            docker login harbor.vballin.com -u admin -p '$HARBORPASSWORD' &&
+            docker push harbor.vballin.com/go-reminders/go-reminders"]
+      # To access secrets as environment variables, use the k8s valueFrom and
+      # secretKeyRef constructs.
+      env:
+      - name: HARBORPASSWORD  # name of env var
+        valueFrom:
+          secretKeyRef:
+            name: harbor    # name of an existing k8s secret
+            key: password     # 'key' subcomponent of the secret
+      volumeMounts:
+      - name: harbor-secret-vol     # mount file containing secret at /secret/mountpath
+        mountPath: "/secret/mountpath"
+      env:
+      - name: HARBORCERT  # name of env var
+        valueFrom:
+          secretKeyRef:
+            name: harbor-cert    # name of an existing k8s secret
+            key: ca.pem     # 'key' subcomponent of the secret
+      volumeMounts:
+      - name: harbor-cert-vol     # mount file containing secret at /secret/mountpath
+        mountPath: "/etc/docker/certs.d/harbor.vballin.com"
+      env:
+      - name: DOCKER_HOST               # the docker daemon can be access on the standard port on localhost
+        value: 127.0.0.1
+    sidecars:
+    - name: dind
+      image: docker:17.10-dind          # Docker already provides an image for running a Docker daemon
+      securityContext:
+        privileged: true                # the Docker daemon can only run in a privileged container
+      # mirrorVolumeMounts will mount the same volumes specified in the main container
+      # to the sidecar (including artifacts), at the same mountPaths. This enables
+      # dind daemon to (partially) see the same filesystem as the main container in
+      # order to use features such as docker volume binding.
+      mirrorVolumeMounts: true
