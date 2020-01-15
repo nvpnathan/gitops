@@ -8,7 +8,7 @@ spec:
   volumes:
   - name: harbor-secret-vol
     secret:
-      secretName: harbor
+      secretName: harbor-creds
   - name: harbor-cert-vol
     secret:
       secretName: harbor-cert
@@ -38,6 +38,9 @@ spec:
             from: "{{steps.checkout.outputs.artifacts.source}}"
           - name: go-reminders
             from: "{{steps.build.outputs.artifacts.go-reminders}}"
+          parameters:
+          - name: git-commit
+            value: "{{steps.build.outputs.parameters.git-commit}}"
 
   - name: checkout
     inputs:
@@ -65,6 +68,10 @@ spec:
       artifacts:
       - name: go-reminders
         path: /go/src/github.com/tkrausjr/go-reminders/cmd/go-reminders
+      parameters:
+      - name: git-commit		# name of output parameter
+        valueFrom:
+          path: /tmp/commit.txt
     container:
       image: golang:1.13.4
       command: ["/bin/sh", "-c"]
@@ -72,7 +79,7 @@ spec:
         cd /go/src/github.com/tkrausjr/go-reminders &&
         git submodule init &&
         git submodule update --recursive &&
-        export CONTAINER=harbor.vballin.com/go-reminders/go-reminders &&
+        git rev-parse --short=7 HEAD > /tmp/commit.txt &&
         make
       "]
       resources:
@@ -87,6 +94,8 @@ spec:
         path: /go/src/github.com/tkrausjr/go-reminders/cmd/go-reminders
       - name: source
         path: /go/src/github.com/tkrausjr/go-reminders
+      parameters:
+      - name: git-commit
     container:
       image: docker:17.10
       securityContext:
@@ -98,10 +107,9 @@ spec:
             cp -a web/static/Skeleton/images html/skeleton/ &&
             cp -a web/templates/tmpl html/ &&
             cp -a web/templates/stats html/ &&
-            until docker ps; do sleep 3; done; docker build -t harbor.vballin.com/go-reminders/go-reminders . &&
-            echo '192.168.76.5 harbor.vballin.com' >> /etc/hosts &&
+            until docker ps; do sleep 3; done; docker build -t harbor.vballin.com/go-reminders/go-reminders:{{inputs.parameters.git-commit}} . &&
             docker login harbor.vballin.com -u admin -p $HARBORPASSWORD &&
-            docker push harbor.vballin.com/go-reminders/go-reminders"]
+            docker push harbor.vballin.com/go-reminders/go-reminders:{{inputs.parameters.git-commit}}"]
       # To access secrets as environment variables, use the k8s valueFrom and
       # secretKeyRef constructs.
       env:
@@ -110,7 +118,7 @@ spec:
       - name: HARBORPASSWORD  # name of env var
         valueFrom:
           secretKeyRef:
-            name: harbor    # name of an existing k8s secret
+            name: harbor-creds    # name of an existing k8s secret
             key: password     # 'key' subcomponent of the secret
       - name: HARBORCERT  # name of env var
         valueFrom:
@@ -131,7 +139,7 @@ spec:
       - name: HARBORPASSWORD  # name of env var
         valueFrom:
           secretKeyRef:
-            name: harbor    # name of an existing k8s secret
+            name: harbor-creds    # name of an existing k8s secret
             key: password     # 'key' subcomponent of the secret
       - name: HARBORCERT  # name of env var
         valueFrom:
