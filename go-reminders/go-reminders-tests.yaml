@@ -7,7 +7,7 @@ spec:
   templates:
   - name: test
     steps:
-    # flip a coin
+    # Run Golang tests for the Application
     - - name: test
         template: test
     # evaluate the result in parallel
@@ -18,7 +18,7 @@ spec:
         template: fail                # exit fail workflow if test results "fail"
         when: "{{steps.test.outputs.result}} == fail"
 
-  # Return heads or tails based on a random number
+  # Return ok or fail from _test files
   - name: test
     script:
       image: python:alpine3.6
