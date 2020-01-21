@@ -1,15 +1,20 @@
 piVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
-  generateName: go-reminders-test-
+  generateName: go-reminders-test
 spec:
   entrypoint: go-reminders-test
   templates:
-  - name: test
+  - name: go-reminders-test
     steps:
     # Run Golang tests for the Application
     - - name: test
         template: test
+        arguments:
+          parameters:
+            name: result
+            value: "{{steps.test.outputs.result}}"
+
     # evaluate the result in parallel
     - - name: ok
         template: ok                 # cantinue workflow if test results "ok"
@@ -20,14 +25,18 @@ spec:
 
   # Return ok or fail from _test files
   - name: test
-    script:
-      image: python:alpine3.6
-      command: [python]
-      source: |
-        import random
-	import sys
-        result = "heads" if random.randint(0,1) == 0 else "tails"
-        print(result)
+    outputs:
+      parameters:
+      - name: result       # name of output parameter
+        valueFrom:
+          path: /tmp/test-result.txt
+    container:
+      image: golang:1.13.4
+      command: ["/bin/sh", "-c"]
+      args: ["
+        cd /go/src/github.com/tkrausjr/go-reminders/internal/app &&
+        go test . | cut -f 1 -d ' ' > /tmp/test-result.txt
+      "]
 
   - name: ok
     container:
