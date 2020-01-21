@@ -1,0 +1,220 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: go-reminders
+
+spec:
+  entrypoint: go-reminders
+  volumes:
+  - name: harbor-secret-vol
+    secret:
+      secretName: harbor-creds
+  - name: harbor-cert-vol
+    secret:
+      secretName: harbor-cert
+  - name: gitlab-cert-vol
+    secret:
+      secretName: gitlab-cert
+  arguments:
+    parameters:
+    - name: repo
+      value: git@gitlab.gl.vballin.com:nness/go-reminders.git
+    - name: revision
+      value: master
+
+  templates:
+  - name: go-reminders
+    steps:
+    # - - name: checkout
+    #     template: checkout  
+    - - name: git-clone
+        template: git-clone
+    - - name: build
+        template: build
+        arguments:
+          artifacts:
+          - name: source
+            from: "{{steps.git-clone.outputs.artifacts.source}}"
+    - - name: dind-build
+        template: dind-build
+        arguments:
+          artifacts:
+          - name: source
+            from: "{{steps.git-clone.outputs.artifacts.source}}"
+          - name: go-reminders
+            from: "{{steps.build.outputs.artifacts.go-reminders}}"
+          parameters:
+          - name: git-commit
+            value: "{{steps.build.outputs.parameters.git-commit}}"
+
+  - name: git-clone
+    inputs:
+      artifacts:
+      - name: source
+        path: /src
+        git:
+          repo: "{{workflow.parameters.repo}}"
+          revision: "{{workflow.parameters.revision}}"
+          # For private repositories, create a k8s secret containing the git credentials and
+          # reference the secret keys in the secret selectors: usernameSecret, passwordSecret,
+          # or sshPrivateKeySecret.
+          # NOTE: when authenticating via sshPrivateKeySecret, the repo URL should supplied in its
+          # SSH format (e.g. git@github.com:argoproj/argo.git). Similarly, when authenticating via
+          # basic auth, the URL should be in its HTTP form (e.g. https://github.com/argoproj/argo.git)
+          # usernameSecret:
+          #   name: github-creds
+          #   key: username
+          # passwordSecret:
+          #   name: github-creds
+          #   key: password
+          sshPrivateKeySecret:
+            name: gitlab-ssh-creds
+            key: id_rsa
+          # 
+          # insecureIgnoreHostKey disables SSH strict host key checking during the git clone
+          # NOTE: this is unnecessary for the well-known public SSH keys from the major git
+          # providers (github, bitbucket, gitlab, azure) as these keys are already baked into
+          # the executor image which performs the clone.
+          insecureIgnoreHostKey: true
+          #
+          # Shallow clones/fetches can be performed by providing a `depth`.
+          # depth: 1
+          #
+          # Additional ref specs to fetch down prior to checkout can be
+          # provided with `fetch`. This may be necessary if `revision` is a
+          # non-branch/-tag ref and thus not covered by git's default fetch.
+          # See https://git-scm.com/book/en/v2/Git-Internals-The-Refspec for
+          # the refspec format.
+          # fetch: refs/meta/*
+          # fetch: refs/changes/*
+    outputs:
+      artifacts:
+      - name: source
+        path: /src
+    container:
+      image: golang:1.13.4
+      command: [sh, -c]
+      args: ["cd /src && git status && ls -l"]
+      workingDir: /src
+
+  # - name: checkout
+  #   inputs:
+  #     artifacts:
+  #     - name: source
+  #       path: /src
+  #       git:
+  #         repo: "{{workflow.parameters.repo}}"
+  #         revision: "{{workflow.parameters.revision}}"
+  #   outputs:
+  #     artifacts:
+  #     - name: source
+  #       path: /src
+  #   container:
+  #     image: debian:9.4
+  #     command: ["/bin/sh", "-c"]
+  #     args: ["cd /src && git status && ls -l"]
+  #     env:
+  #     - name: GITLABCERT  # name of env var
+  #       valueFrom:
+  #         secretKeyRef:
+  #           name: gitlab-cert    # name of an existing k8s secret
+  #           key: selfsignedcert.crt
+  #     volumeMounts:
+  #     - mountPath: /etc/ssl/certs/selfsignedcert.crt
+  #       subPath: selfsignedcert.crt
+  #       name: gitlab-cert-vol
+
+  - name: build
+    inputs:
+      artifacts:
+      - name: source
+        path: /go/src/gitlab.gl.vballin.com/nness/go-reminders
+    outputs:
+      artifacts:
+      - name: go-reminders
+        path: /go/src/gitlab.gl.vballin.com/nness/go-reminders/cmd/go-reminders
+      parameters:
+      - name: git-commit		# name of output parameter
+        valueFrom:
+          path: /tmp/commit.txt
+    container:
+      image: golang:1.13.4
+      command: ["/bin/sh", "-c"]
+      args: ["
+        cd /go/src/gitlab.gl.vballin.com/nness/go-reminders &&
+        git submodule init &&
+        git submodule update --recursive &&
+        git rev-parse --short=7 HEAD > /tmp/commit.txt &&
+        make
+      "]
+      resources:
+        requests:
+          memory: 1024Mi
+          cpu: 200m
+
+  - name: dind-build
+    inputs:
+      artifacts:
+      - name: go-reminders
+        path: /go/src/gitlab.gl.vballin.com/nness/go-reminders/cmd/go-reminders
+      - name: source
+        path: /go/src/gitlab.gl.vballin.com/nness/go-reminders
+      parameters:
+      - name: git-commit
+    container:
+      image: docker:17.10
+      securityContext:
+        privileged: true
+      command: [sh, -c]
+      args: ["cd /go/src/gitlab.gl.vballin.com/nness/go-reminders/ &&
+            mkdir -p html/skeleton &&
+            cp -a web/static/Skeleton/css html/skeleton/ &&
+            cp -a web/static/Skeleton/images html/skeleton/ &&
+            cp -a web/templates/tmpl html/ &&
+            cp -a web/templates/stats html/ &&
+            until docker ps; do sleep 3; done; docker build -t harbor.vballin.com/go-reminders/go-reminders:{{inputs.parameters.git-commit}} . &&
+            docker login harbor.vballin.com -u admin -p $HARBORPASSWORD &&
+            docker push harbor.vballin.com/go-reminders/go-reminders:{{inputs.parameters.git-commit}}"]
+      # To access secrets as environment variables, use the k8s valueFrom and
+      # secretKeyRef constructs.
+      env:
+      - name: DOCKER_HOST               # the docker daemon can be access on the standard port on localhost
+        value: 127.0.0.1
+      - name: HARBORPASSWORD  # name of env var
+        valueFrom:
+          secretKeyRef:
+            name: harbor-creds    # name of an existing k8s secret
+            key: password     # 'key' subcomponent of the secret
+      - name: HARBORCERT  # name of env var
+        valueFrom:
+          secretKeyRef:
+            name: harbor-cert    # name of an existing k8s secret
+            key: ca.crt     # 'key' subcomponent of the secret
+      volumeMounts:
+      - name: harbor-secret-vol     # mount file containing secret at /secret/mountpath
+        mountPath: "/secret/mountpath"
+      - name: harbor-cert-vol     # mount file containing secret at /secret/mountpath
+        mountPath: "/etc/docker/certs.d/harbor.vballin.com"
+    sidecars:
+    - name: dind
+      image: docker:17.10-dind          # Docker already provides an image for running a Docker daemon
+      env:
+      - name: DOCKER_HOST               # the docker daemon can be access on the standard port on localhost
+        value: 127.0.0.1
+      - name: HARBORPASSWORD  # name of env var
+        valueFrom:
+          secretKeyRef:
+            name: harbor-creds    # name of an existing k8s secret
+            key: password     # 'key' subcomponent of the secret
+      - name: HARBORCERT  # name of env var
+        valueFrom:
+          secretKeyRef:
+            name: harbor-cert    # name of an existing k8s secret
+            key: ca.crt     # 'key' subcomponent of the secret
+      securityContext:
+        privileged: true                # the Docker daemon can only run in a privileged container
+      # mirrorVolumeMounts will mount the same volumes specified in the main container
+      # to the sidecar (including artifacts), at the same mountPaths. This enables
+      # dind daemon to (partially) see the same filesystem as the main container in
+      # order to use features such as docker volume binding.
+      mirrorVolumeMounts: true
