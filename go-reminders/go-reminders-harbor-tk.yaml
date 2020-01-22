@@ -31,13 +31,15 @@ spec:
           artifacts:
           - name: source
             from: "{{steps.checkout.outputs.artifacts.source}}"
-      # This step will fail the workflow
-    - - name: validate-result
-        template: validate-result              # exit fail workflow if test results "fail"
+    # This step will stop the workflow based on Go Test Results
+    - - name: test-failure
+        template: test-failure             # exit fail workflow if test results "fail"
+        when: "{{steps.test.outputs.result}} != ok"
         arguments: 
            parameters:
            - name: avalue
              value: "{{steps.test.outputs.result}}"
+    # Run Makefile to build the Golang Source into Binary
     - - name: build
         template: build
         when: "{{steps.test.outputs.result}} == ok"
@@ -45,6 +47,7 @@ spec:
           artifacts:
           - name: source
             from: "{{steps.checkout.outputs.artifacts.source}}"
+    # Build a new container with Golang Binary and upload to Registry
     - - name: dind-build
         template: dind-build
         arguments:
@@ -74,7 +77,7 @@ spec:
       command: ["/bin/sh", "-c"]
       args: ["cd /src && git status && ls -l"]
   
-  # Return ok or fail from _test files
+  # Return ok or fail from running App Golang _test files
   - name: test
     inputs:
       artifacts:
@@ -87,10 +90,11 @@ spec:
         cd /go/src/github.com/tkrausjr/go-reminders
         git submodule init 
         git submodule update --recursive 
-        go test /go/src/github.com/tkrausjr/go-reminders/internal/app  | cut -f 1 -d ' '
+        go test ./internal/app  | tail -n1 | cut -f 1 -d ' '
   
   # This step will fail the workflow
-  - name: validate-result
+  # I think I can remove this step and go from test --> build with the dependency on 
+  - name: test-failure
     inputs:
       parameters:
         - name: avalue
@@ -98,7 +102,10 @@ spec:
       image: golang:1.13.4
       command: [sh, -c]
       args: ["
-        echo \"GoLang Test result was\"  {{inputs.parameters.avalue}}"]
+        echo \"GoLang Tests FAILED !!! \"  &&
+        echo \"GoLang Test result was\"  {{inputs.parameters.avalue}} &&
+        exit 1
+      "] 
 
   - name: build
     inputs:
@@ -123,7 +130,6 @@ spec:
         git rev-parse --short=7 HEAD > /tmp/commit.txt &&
         make
       "]
-      # 
       resources:
         requests:
           memory: 1024Mi
