@@ -24,8 +24,23 @@ spec:
     steps:
     - - name: checkout
         template: checkout  
+    # Run Golang tests for the Application
+    - - name: test
+        template: test
+        arguments:
+          artifacts:
+          - name: source
+            from: "{{steps.checkout.outputs.artifacts.source}}"
+      # This step will fail the workflow
+    - - name: validate-result
+        template: validate-result              # exit fail workflow if test results "fail"
+        arguments: 
+           parameters:
+           - name: avalue
+             value: "{{steps.test.outputs.result}}"
     - - name: build
         template: build
+        when: "{{steps.test.outputs.result}} == ok"
         arguments:
           artifacts:
           - name: source
@@ -58,6 +73,32 @@ spec:
       image: golang:1.13.4
       command: ["/bin/sh", "-c"]
       args: ["cd /src && git status && ls -l"]
+  
+  # Return ok or fail from _test files
+  - name: test
+    inputs:
+      artifacts:
+      - name: source
+        path: /go/src/github.com/tkrausjr/go-reminders
+    script:
+      image: golang:1.13.4
+      command: ["/bin/sh"]
+      source: |
+        cd /go/src/github.com/tkrausjr/go-reminders
+        git submodule init 
+        git submodule update --recursive 
+        go test /go/src/github.com/tkrausjr/go-reminders/internal/app  | cut -f 1 -d ' '
+  
+  # This step will fail the workflow
+  - name: validate-result
+    inputs:
+      parameters:
+        - name: avalue
+    container:
+      image: golang:1.13.4
+      command: [sh, -c]
+      args: ["
+        echo \"GoLang Test result was\"  {{inputs.parameters.avalue}}"]
 
   - name: build
     inputs:
@@ -82,6 +123,7 @@ spec:
         git rev-parse --short=7 HEAD > /tmp/commit.txt &&
         make
       "]
+      # 
       resources:
         requests:
           memory: 1024Mi
