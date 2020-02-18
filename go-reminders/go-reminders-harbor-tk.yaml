@@ -39,7 +39,7 @@ spec:
            parameters:
            - name: avalue
              value: "{{steps.test.outputs.result}}"
-    # Run Makefile to build the Golang Source into Binary
+    # If Golang test results=ok, Run Makefile to build the Golang Source into Binary
     - - name: build
         template: build
         when: "{{steps.test.outputs.result}} == ok"
@@ -92,8 +92,7 @@ spec:
         git submodule update --recursive 
         go test ./internal/app  | tail -n1 | cut -f 1 -d ' '
   
-  # This step will fail the workflow
-  # I think I can remove this step and go from test --> build with the dependency on 
+  # This step will fail the workflow since Golang tests were not ok
   - name: test-failure
     inputs:
       parameters:
