@@ -23,7 +23,7 @@ spec:
     - name: image-tag
       value: "latest"
     - name: severity-threshold
-      value: "3"
+      value: "5"
 
   templates:
   - name: clair-scans
@@ -39,7 +39,23 @@ spec:
           # Pass the hello-param output from the generate-parameter step as the message input to print-message
           - name: scan-results
             value: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}}"
+    - - name: pass
+        template: pass
+        when: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}} == 0"
+        arguments:
+          parameters:
+          # Pass the hello-param output from the generate-parameter step as the message input to print-message
+          - name: scan-results
+            value: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}}"
 
+    - - name: fail
+        template: fail      
+        when: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}} >= 1"
+        arguments:
+          parameters:
+          # Pass the hello-param output from the generate-parameter step as the message input to print-message
+          - name: scan-results
+            value: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}}"
 
   - name: clair-scan-api
     container:
@@ -88,4 +104,24 @@ spec:
       args: ["
       echo The results of the Clair Scan for the image {{workflow.parameters.image-repo}} on server {{workflow.parameters.harbor-server}} are &&
       echo {{inputs.parameters.scan-results}} vulnerabilites are higher than or equal to severity level {{workflow.parameters.severity-threshold}}
+      "]
+
+  - name: pass
+    inputs:
+      parameters:
+      - name: scan-results
+    container:
+      image: alpine:3.6
+      command: [sh, -c]
+      args: ["echo CVE Scan Pass. There are {{inputs.parameters.scan-results}} vulnerabilites are higher than or equal to severity level {{workflow.parameters.severity-threshold}}"]
+
+  - name: fail
+    inputs:
+      parameters:
+      - name: scan-results
+    container:
+      image: alpine:3.6
+      command: [sh, -c]
+      args: ["echo CVE Scan Fail. There are {{inputs.parameters.scan-results}} vulnerabilites are higher than or equal to severity level {{workflow.parameters.severity-threshold}} &&
+      exit 1
       "]
