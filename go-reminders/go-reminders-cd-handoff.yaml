@@ -36,14 +36,11 @@ spec:
       command: ["/bin/sh"]
       source: |
         cd /home 
-        git clone {{workflow.parameters.config-repo}} 
-        cd cd-kubernetes 
+        git clone {{workflow.parameters.config-repo}} && cd cd-kubernetes 
         git config user.email "tkrausjr@gmail.com" 
         git remote set-url origin git@github.com:tkrausjr/cd-kubernetes.git 
-        git remote -v 
         ssh -o "StrictHostKeyChecking=no" -T git@github.com 
         python3 /home/yaml-subs.py -f ./go-reminders/overlays/prod/kustomization.yaml -s argoserver -r argorepo -t argowf-tag2999
-        git remote -v 
         git add . 
         git commit -am "Updating Image Tag" 
         git push origin master
