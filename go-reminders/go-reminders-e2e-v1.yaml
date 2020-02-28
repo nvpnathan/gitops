@@ -1,0 +1,311 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: go-reminders
+
+spec:
+  entrypoint: go-reminders
+  volumes:
+  - name: harbor-secret-vol
+    secret:
+      secretName: harbor-creds
+  - name: harbor-cert-vol
+    secret:
+      secretName: harbor-cert
+  - name: gitlab-cert-vol
+    secret:
+      secretName: gitlab-cert
+  arguments:
+    parameters:
+    - name: repo
+      value: git@gitlab.gl.vballin.com:nness/go-reminders.git
+    - name: revision
+      value: master
+    - name: harbor-server
+      value: "harbor.vballin.com"
+      ## This is a workflow Global Parameter access it with
+      ## {{workflow.parameters.harbor-server}}
+    - name: image-repo
+      value: "go-reminders/go-reminders"
+    - name: image-tag
+      value: "{{steps.build.outputs.parameters.git-commit}}"
+    - name: severity-threshold
+      value: "5"
+
+  templates:
+  - name: go-reminders
+    steps:
+    - - name: git-clone
+        template: git-clone
+    - - name: test
+        template: test
+        arguments:
+          artifacts:
+          - name: source
+            from: "{{steps.git-clone.outputs.artifacts.source}}"
+    - - name: test-result
+        template: print-message
+        arguments:
+          parameters:
+          - name: result
+            value: "{{steps.test.outputs.parameters.result}}"
+    - - name: build
+        template: build
+        arguments:
+          artifacts:
+          - name: source
+            from: "{{steps.git-clone.outputs.artifacts.source}}"
+    - - name: dind-build
+        template: dind-build
+        arguments:
+          artifacts:
+          - name: source
+            from: "{{steps.git-clone.outputs.artifacts.source}}"
+          - name: go-reminders
+            from: "{{steps.build.outputs.artifacts.go-reminders}}"
+          parameters:
+          - name: git-commit
+            value: "{{steps.build.outputs.parameters.git-commit}}"
+    - - name: clair-scan-api
+        template: clair-scan-api
+     
+    - - name: print-scan
+        template: print-scan
+        arguments:
+          parameters:
+          # Pass the hello-param output from the generate-parameter step as the message input to print-message
+          - name: scan-results
+            value: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}}"
+    - - name: pass
+        template: pass
+        when: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}} == 0"
+        arguments:
+          parameters:
+          # Pass the hello-param output from the generate-parameter step as the message input to print-message
+          - name: scan-results
+            value: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}}"
+
+    - - name: fail
+        template: fail      
+        when: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}} >= 1"
+        arguments:
+          parameters:
+          # Pass the hello-param output from the generate-parameter step as the message input to print-message
+          - name: scan-results
+            value: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}}"
+
+  - name: git-clone
+    inputs:
+      artifacts:
+      - name: source
+        path: /src
+        git:
+          repo: "{{workflow.parameters.repo}}"
+          revision: "{{workflow.parameters.revision}}"
+          # usernameSecret:
+          #   name: github-creds
+          #   key: username
+          # passwordSecret:
+          #   name: github-creds
+          #   key: password
+          sshPrivateKeySecret:
+            name: gitlab-ssh-creds
+            key: id_rsa
+          insecureIgnoreHostKey: true
+    outputs:
+      artifacts:
+      - name: source
+        path: /src
+    container:
+      image: golang:1.13.4
+      command: [sh, -c]
+      args: ["cd /src && git status && ls -l"]
+      workingDir: /src
+
+  - name: test
+    inputs:
+      artifacts:
+      - name: source
+        path: /go/src/gitlab.gl.vballin.com/nness/go-reminders
+    outputs:
+      parameters:
+      - name: result       # name of output parameter
+        valueFrom:
+          path: /tmp/test-result.txt
+    container:
+      image: golang:1.13.4
+      command: ["/bin/sh", "-c"]
+      args: ["
+        cd /go/src/gitlab.gl.vballin.com/nness/go-reminders/internal/app &&
+        go test . | cut -f 1 -d ' ' > /tmp/test-result.txt
+      "]
+
+  - name: print-message
+    inputs:
+      parameters:
+      - name: result
+    container:
+      image: docker/whalesay:latest
+      command: [cowsay]
+      args: ["{{inputs.parameters.result}}"]
+
+  - name: build
+    inputs:
+      artifacts:
+      - name: source
+        path: /go/src/gitlab.gl.vballin.com/nness/go-reminders
+    outputs:
+      artifacts:
+      - name: go-reminders
+        path: /go/src/gitlab.gl.vballin.com/nness/go-reminders/cmd/go-reminders
+      parameters:
+      - name: git-commit		# name of output parameter
+        valueFrom:
+          path: /tmp/commit.txt
+    container:
+      image: golang:1.13.4
+      command: ["/bin/sh", "-c"]
+      args: ["
+        cd /go/src/gitlab.gl.vballin.com/nness/go-reminders &&
+        git submodule init &&
+        git submodule update --recursive &&
+        git rev-parse --short=7 HEAD > /tmp/commit.txt &&
+        make
+      "]
+      resources:
+        requests:
+          memory: 1024Mi
+          cpu: 200m
+
+  - name: dind-build
+    inputs:
+      artifacts:
+      - name: go-reminders
+        path: /go/src/gitlab.gl.vballin.com/nness/go-reminders/cmd/go-reminders
+      - name: source
+        path: /go/src/gitlab.gl.vballin.com/nness/go-reminders
+      parameters:
+      - name: git-commit
+    container:
+      image: docker:17.10
+      securityContext:
+        privileged: true
+      command: [sh, -c]
+      args: ["cd /go/src/gitlab.gl.vballin.com/nness/go-reminders/ &&
+            mkdir -p html/skeleton &&
+            cp -a web/static/Skeleton/css html/skeleton/ &&
+            cp -a web/static/Skeleton/images html/skeleton/ &&
+            cp -a web/templates/tmpl html/ &&
+            cp -a web/templates/stats html/ &&
+            until docker ps; do sleep 3; done; docker build -t harbor.vballin.com/go-reminders/go-reminders:{{inputs.parameters.git-commit}} . &&
+            docker login harbor.vballin.com -u admin -p $HARBORPASSWORD &&
+            docker push harbor.vballin.com/go-reminders/go-reminders:{{inputs.parameters.git-commit}}"]
+      # To access secrets as environment variables, use the k8s valueFrom and
+      # secretKeyRef constructs.
+      env:
+      - name: DOCKER_HOST               # the docker daemon can be access on the standard port on localhost
+        value: 127.0.0.1
+      - name: HARBORPASSWORD  # name of env var
+        valueFrom:
+          secretKeyRef:
+            name: harbor-creds    # name of an existing k8s secret
+            key: password     # 'key' subcomponent of the secret
+      - name: HARBORCERT  # name of env var
+        valueFrom:
+          secretKeyRef:
+            name: harbor-cert    # name of an existing k8s secret
+            key: ca.crt     # 'key' subcomponent of the secret
+      volumeMounts:
+      - name: harbor-secret-vol     # mount file containing secret at /secret/mountpath
+        mountPath: "/secret/mountpath"
+      - name: harbor-cert-vol     # mount file containing secret at /secret/mountpath
+        mountPath: "/etc/docker/certs.d/harbor.vballin.com"
+    sidecars:
+    - name: dind
+      image: docker:17.10-dind          # Docker already provides an image for running a Docker daemon
+      env:
+      - name: DOCKER_HOST               # the docker daemon can be access on the standard port on localhost
+        value: 127.0.0.1
+      - name: HARBORPASSWORD  # name of env var
+        valueFrom:
+          secretKeyRef:
+            name: harbor-creds    # name of an existing k8s secret
+            key: password     # 'key' subcomponent of the secret
+      - name: HARBORCERT  # name of env var
+        valueFrom:
+          secretKeyRef:
+            name: harbor-cert    # name of an existing k8s secret
+            key: ca.crt     # 'key' subcomponent of the secret
+      securityContext:
+        privileged: true                # the Docker daemon can only run in a privileged container
+      # mirrorVolumeMounts will mount the same volumes specified in the main container
+      # to the sidecar (including artifacts), at the same mountPaths. This enables
+      # dind daemon to (partially) see the same filesystem as the main container in
+      # order to use features such as docker volume binding.
+      mirrorVolumeMounts: true
+  - name: clair-scan-api
+    container:
+      image: mytkrausjr/alpine-tools:latest
+      securityContext:
+        privileged: true
+      command: [sh, -c]
+      args: ['
+            echo {{workflow.parameters.harbor-server}} &&
+            curl -k --silent -X GET "https://{{workflow.parameters.harbor-server}}/api/repositories/{{workflow.parameters.image-repo}}/tags/{{workflow.parameters.image-tag}}/vulnerability/details" | jq ".[] | select( .severity >= {{workflow.parameters.severity-threshold}} ) | .severity" | wc -l > /tmp/vulnerability-count.txt
+            ']  
+      # To access secrets as environment variables, use the k8s valueFrom and
+      # secretKeyRef constructs.
+      env:
+      - name: DOCKER_HOST               # the docker daemon can be access on the standard port on localhost
+        value: 127.0.0.1
+      - name: HARBORPASSWORD  # name of env var
+        valueFrom:
+          secretKeyRef:
+            name: harbor-creds    # name of an existing k8s secret
+            key: password     # 'key' subcomponent of the secret
+      - name: HARBORCERT  # name of env var
+        valueFrom:
+          secretKeyRef:
+            name: harbor-cert    # name of an existing k8s secret
+            key: ca.crt     # 'key' subcomponent of the secret
+      volumeMounts:
+      - name: harbor-secret-vol     # mount file containing secret at /secret/mountpath
+        mountPath: "/secret/mountpath"
+      - name: harbor-cert-vol     # mount file containing secret at /secret/mountpath
+        mountPath: "/etc/docker/certs.d/harbor.vballin.com"
+    outputs:
+      parameters:
+      - name: vulnerability-count		# name of output parameter
+        valueFrom:
+          path: /tmp/vulnerability-count.txt	# set the value of hvulnerability-count to the contents of this vulnerability-count.txt
+
+  - name: print-scan
+    inputs:
+      parameters:
+      - name: scan-results
+    container:
+      image: mytkrausjr/alpine-tools:latest
+      command: [sh, -c]
+      args: ["
+      echo The results of the Clair Scan for the image {{workflow.parameters.image-repo}} on server {{workflow.parameters.harbor-server}} are &&
+      echo {{inputs.parameters.scan-results}} vulnerabilites are higher than or equal to severity level {{workflow.parameters.severity-threshold}}
+      "]
+  - name: pass
+    inputs:
+      parameters:
+      - name: scan-results
+    container:
+      image: alpine:3.6
+      command: [sh, -c]
+      args: ["echo CVE Scan Pass. There are {{inputs.parameters.scan-results}} vulnerabilites are higher than or equal to severity level {{workflow.parameters.severity-threshold}}"]
+
+  - name: fail
+    inputs:
+      parameters:
+      - name: scan-results
+    container:
+      image: alpine:3.6
+      command: [sh, -c]
+      args: ["echo CVE Scan Fail. There are {{inputs.parameters.scan-results}} vulnerabilites are higher than or equal to severity level {{workflow.parameters.severity-threshold}} &&
+      exit 1
+      "]
