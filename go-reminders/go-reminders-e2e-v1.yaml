@@ -31,6 +31,8 @@ spec:
       value: "{{steps.build.outputs.parameters.git-commit}}"
     - name: severity-threshold
       value: "5"
+    - name: config-repo
+      value: https://github.com/tkrausjr/cd-kubernetes.git
 
   templates:
   - name: go-reminders
@@ -43,14 +45,16 @@ spec:
           artifacts:
           - name: source
             from: "{{steps.git-clone.outputs.artifacts.source}}"
-    - - name: test-result
-        template: print-message
-        arguments:
-          parameters:
-          - name: result
-            value: "{{steps.test.outputs.parameters.result}}"
+    - - name: test-failure
+        template: test-failure             # exit fail workflow if test results "fail"
+        when: "{{steps.test.outputs.parameters.result}} != ok"
+        arguments: 
+           parameters:
+           - name: avalue
+             value: "{{steps.test.outputs.parameters.result}}"
     - - name: build
         template: build
+        when: "{{steps.test.outputs.parameters.result}} == ok"
         arguments:
           artifacts:
           - name: source
@@ -68,7 +72,6 @@ spec:
             value: "{{steps.build.outputs.parameters.git-commit}}"
     - - name: clair-scan-api
         template: clair-scan-api
-     
     - - name: print-scan
         template: print-scan
         arguments:
@@ -84,7 +87,6 @@ spec:
           # Pass the hello-param output from the generate-parameter step as the message input to print-message
           - name: scan-results
             value: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}}"
-
     - - name: fail
         template: fail      
         when: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}} >= 1"
@@ -93,6 +95,12 @@ spec:
           # Pass the hello-param output from the generate-parameter step as the message input to print-message
           - name: scan-results
             value: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}}"
+    - - name: update-image
+        template: update-image
+        arguments:
+          parameters:
+          - name: git-commit
+            value: "{{steps.build.outputs.parameters.git-commit}}"
 
   - name: git-clone
     inputs:
@@ -136,18 +144,24 @@ spec:
       image: golang:1.13.4
       command: ["/bin/sh", "-c"]
       args: ["
-        cd /go/src/gitlab.gl.vballin.com/nness/go-reminders/internal/app &&
-        go test . | cut -f 1 -d ' ' > /tmp/test-result.txt
+        cd /go/src/gitlab.gl.vballin.com/nness/go-reminders &&
+        git submodule init &&
+        git submodule update --recursive &&
+        go test ./internal/app | cut -f 1 -d ' ' > /tmp/test-result.txt
       "]
 
-  - name: print-message
+  - name: test-failure
     inputs:
       parameters:
-      - name: result
+        - name: avalue
     container:
-      image: docker/whalesay:latest
-      command: [cowsay]
-      args: ["{{inputs.parameters.result}}"]
+      image: golang:1.13.4
+      command: [sh, -c]
+      args: ["
+        echo \"GoLang Tests FAILED !!! \"  &&
+        echo \"GoLang Test result was\"  {{inputs.parameters.avalue}} &&
+        exit 1
+      "] 
 
   - name: build
     inputs:
@@ -309,3 +323,26 @@ spec:
       args: ["echo CVE Scan Fail. There are {{inputs.parameters.scan-results}} vulnerabilites are higher than or equal to severity level {{workflow.parameters.severity-threshold}} &&
       exit 1
       "]
+  
+  # If Golang test results=ok, Run Makefile to build the Golang Source into Binary
+  - name: update-image
+    inputs:
+      parameters:
+      - name: git-commit
+    script:
+      image: mytkrausjr/python-slim:git6
+      command: ["/bin/sh"]
+      source: |
+        cd /home 
+        git clone {{workflow.parameters.config-repo}} && cd cd-kubernetes 
+        git config user.email "tkrausjr@gmail.com" 
+        git remote set-url origin git@github.com:tkrausjr/cd-kubernetes.git 
+        ssh -o "StrictHostKeyChecking=no" -T git@github.com 
+        python3 /home/yaml-subs.py -f ./go-reminders/overlays/prod/kustomization.yaml -t {{inputs.parameters.git-commit}}
+        git add . 
+        git commit -am "Updating Image Tag" 
+        git push origin master
+      resources:
+        requests:
+          memory: 1024Mi
+          cpu: 200m
