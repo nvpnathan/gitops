@@ -23,7 +23,8 @@ spec:
       value: master
     - name: harbor-server
       value: "harbor.vballin.com"
-      # workflow Global Parameter {{workflow.parameters.harbor-server}}
+      ## This is a workflow Global Parameter access it with
+      ## {{workflow.parameters.harbor-server}}
     - name: image-repo
       value: "go-reminders/go-reminders"
     - name: image-tag
@@ -83,7 +84,7 @@ spec:
         when: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}} == 0"
         arguments:
           parameters:
-          # Pass the Scan Results Count to the Pass Step
+          # Pass the hello-param output from the generate-parameter step as the message input to print-message
           - name: scan-results
             value: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}}"
     - - name: fail
@@ -91,7 +92,7 @@ spec:
         when: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}} >= 1"
         arguments:
           parameters:
-          # Pass the Scan Results Count to the Faile Step
+          # Pass the hello-param output from the generate-parameter step as the message input to print-message
           - name: scan-results
             value: "{{steps.clair-scan-api.outputs.parameters.vulnerability-count}}"
     - - name: update-image
@@ -210,9 +211,9 @@ spec:
             cp -a web/static/Skeleton/images html/skeleton/ &&
             cp -a web/templates/tmpl html/ &&
             cp -a web/templates/stats html/ &&
-            until docker ps; do sleep 3; done; docker build -t harbor.vballin.com/go-reminders/go-reminders:{{inputs.parameters.git-commit}} . &&
-            docker login harbor.vballin.com -u admin -p $HARBORPASSWORD &&
-            docker push harbor.vballin.com/go-reminders/go-reminders:{{inputs.parameters.git-commit}}"]
+            until docker ps; do sleep 3; done; docker build -t {{workflow.parameters.harbor-server}}/{{workflow.parameters.image-repo}}:{{inputs.parameters.git-commit}} . &&
+            docker login {{workflow.parameters.harbor-server}} -u admin -p $HARBORPASSWORD &&
+            docker push {{workflow.parameters.harbor-server}}/{{workflow.parameters.image-repo}}:{{inputs.parameters.git-commit}}"]
       # To access secrets as environment variables, use the k8s valueFrom and
       # secretKeyRef constructs.
       env:
@@ -232,7 +233,7 @@ spec:
       - name: harbor-secret-vol     # mount file containing secret at /secret/mountpath
         mountPath: "/secret/mountpath"
       - name: harbor-cert-vol     # mount file containing secret at /secret/mountpath
-        mountPath: "/etc/docker/certs.d/harbor.vballin.com"
+        mountPath: "/etc/docker/certs.d/{{workflow.parameters.harbor-server}}"
     sidecars:
     - name: dind
       image: docker:17.10-dind          # Docker already provides an image for running a Docker daemon
@@ -285,7 +286,7 @@ spec:
       - name: harbor-secret-vol     # mount file containing secret at /secret/mountpath
         mountPath: "/secret/mountpath"
       - name: harbor-cert-vol     # mount file containing secret at /secret/mountpath
-        mountPath: "/etc/docker/certs.d/harbor.vballin.com"
+        mountPath: "/etc/docker/certs.d/{{workflow.parameters.harbor-server}}"
     outputs:
       parameters:
       - name: vulnerability-count		# name of output parameter
