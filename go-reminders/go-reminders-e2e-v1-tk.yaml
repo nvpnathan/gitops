@@ -18,14 +18,14 @@ spec:
   arguments:
     parameters:
     - name: repo
-      value: git@gitlab.gl.vballin.com:nness/go-reminders.git
+      value: https://github.com/tkrausjr/go-reminders.git
     - name: revision
       value: master
     - name: harbor-server
-      value: "harbor.vballin.com"
+      value: "harbor.tpmlab.vmware.com"
       # workflow Global Parameter {{workflow.parameters.harbor-server}}
     - name: image-repo
-      value: "go-reminders/go-reminders"
+      value: "library/go-reminders"
     - name: image-tag
       value: "{{steps.build.outputs.parameters.git-commit}}"
     - name: severity-threshold
@@ -101,15 +101,9 @@ spec:
         git:
           repo: "{{workflow.parameters.repo}}"
           revision: "{{workflow.parameters.revision}}"
-          # usernameSecret:
-          #   name: github-creds
-          #   key: username
-          # passwordSecret:
-          #   name: github-creds
-          #   key: password
-          sshPrivateKeySecret:
-            name: gitlab-ssh-creds
-            key: id_rsa
+          #sshPrivateKeySecret:
+          #  name: gitlab-ssh-creds
+          #  key: id_rsa
           insecureIgnoreHostKey: true
     outputs:
       artifacts:
@@ -125,7 +119,7 @@ spec:
     inputs:
       artifacts:
       - name: source
-        path: /go/src/gitlab.gl.vballin.com/nness/go-reminders
+        path: /go/src/github.com/tkrausjr/go-reminders 
     outputs:
       parameters:
       - name: result       # name of output parameter
@@ -135,7 +129,7 @@ spec:
       image: golang:1.13.4
       command: ["/bin/sh", "-c"]
       args: ["
-        cd /go/src/gitlab.gl.vballin.com/nness/go-reminders/internal/app &&
+        cd /go/src/github.com/tkrausjr/go-reminders/internal/app &&
         go test . | cut -f 1 -d ' ' > /tmp/test-result.txt
       "]
 
@@ -152,11 +146,11 @@ spec:
     inputs:
       artifacts:
       - name: source
-        path: /go/src/gitlab.gl.vballin.com/nness/go-reminders
+        path: /go/src/github.com/tkrausjr/go-reminders
     outputs:
       artifacts:
       - name: go-reminders
-        path: /go/src/gitlab.gl.vballin.com/nness/go-reminders/cmd/go-reminders
+        path: /go/src/github.com/tkrausjr/go-reminders/cmd/go-reminders
       parameters:
       - name: git-commit		# name of output parameter
         valueFrom:
@@ -165,7 +159,7 @@ spec:
       image: golang:1.13.4
       command: ["/bin/sh", "-c"]
       args: ["
-        cd /go/src/gitlab.gl.vballin.com/nness/go-reminders &&
+        cd /go/src/github.com/tkrausjr/go-reminders &&
         git submodule init &&
         git submodule update --recursive &&
         git rev-parse --short=7 HEAD > /tmp/commit.txt &&
@@ -180,9 +174,9 @@ spec:
     inputs:
       artifacts:
       - name: go-reminders
-        path: /go/src/gitlab.gl.vballin.com/nness/go-reminders/cmd/go-reminders
+        path: /go/src/github.com/tkrausjr/go-reminders/cmd/go-reminders
       - name: source
-        path: /go/src/gitlab.gl.vballin.com/nness/go-reminders
+        path: /go/src/github.com/tkrausjr/go-reminders
       parameters:
       - name: git-commit
     container:
@@ -190,15 +184,15 @@ spec:
       securityContext:
         privileged: true
       command: [sh, -c]
-      args: ["cd /go/src/gitlab.gl.vballin.com/nness/go-reminders/ &&
+      args: ["cd /go/src/github.com/tkrausjr/go-reminders/ &&
             mkdir -p html/skeleton &&
             cp -a web/static/Skeleton/css html/skeleton/ &&
             cp -a web/static/Skeleton/images html/skeleton/ &&
             cp -a web/templates/tmpl html/ &&
             cp -a web/templates/stats html/ &&
-            until docker ps; do sleep 3; done; docker build -t harbor.vballin.com/go-reminders/go-reminders:{{inputs.parameters.git-commit}} . &&
-            docker login harbor.vballin.com -u admin -p $HARBORPASSWORD &&
-            docker push harbor.vballin.com/go-reminders/go-reminders:{{inputs.parameters.git-commit}}"]
+            until docker ps; do sleep 3; done; docker build -t {{workflow.parameters.harbor-server}}/{{workflow.parameters.image-repo}}:{{inputs.parameters.git-commit}} . &&
+            docker login {{workflow.parameters.harbor-server}} -u admin -p $HARBORPASSWORD &&
+            docker push {{workflow.parameters.harbor-server}}/{{workflow.parameters.image-repo}}:{{inputs.parameters.git-commit}}"]
       # To access secrets as environment variables, use the k8s valueFrom and
       # secretKeyRef constructs.
       env:
@@ -218,7 +212,7 @@ spec:
       - name: harbor-secret-vol     # mount file containing secret at /secret/mountpath
         mountPath: "/secret/mountpath"
       - name: harbor-cert-vol     # mount file containing secret at /secret/mountpath
-        mountPath: "/etc/docker/certs.d/harbor.vballin.com"
+        mountPath: "/etc/docker/certs.d/{{workflow.parameters.harbor-server}}"
     sidecars:
     - name: dind
       image: docker:17.10-dind          # Docker already provides an image for running a Docker daemon
@@ -271,7 +265,7 @@ spec:
       - name: harbor-secret-vol     # mount file containing secret at /secret/mountpath
         mountPath: "/secret/mountpath"
       - name: harbor-cert-vol     # mount file containing secret at /secret/mountpath
-        mountPath: "/etc/docker/certs.d/harbor.vballin.com"
+        mountPath: "/etc/docker/certs.d/{{workflow.parameters.harbor-server}}"
     outputs:
       parameters:
       - name: vulnerability-count		# name of output parameter

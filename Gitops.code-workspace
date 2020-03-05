@@ -6,5 +6,8 @@
 		{
 			"path": "/Users/kraust/gitHub/go-reminders-fork"
 		}
-	]
+	],
+	"settings": {
+		"scm.alwaysShowActions": true
+	}
 }
