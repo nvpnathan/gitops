@@ -97,13 +97,10 @@ helm install harbor harbor/harbor \
 ### Install Argo
 ```
 kubectl create ns argo
+kubens argo
 kubectl apply -f https://raw.githubusercontent.com/argoproj/argo/release-2.7/manifests/quick-start-postgres.yaml
 kubectl edit svc argo-server
 Change to type LoadBalancer
-```
-
-```
-kubectl create rolebinding default-admin --clusterrole=admin --serviceaccount=argo:default
 ```
 
 ```
@@ -118,6 +115,7 @@ kubectl create secret generic harbor-cert --from-file=ca.crt
 
 ```
 kubectl create ns argo-events
+kubens argo-events
 kubectl apply -f argo-events-install.yaml
 kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-events/master/hack/k8s/manifests/argo-events-cluster-roles.yaml
 kubectl create secret generic gitlab-cert --from-file=vballin-ca.crt --from-file=gitlab-cert.crt
@@ -131,7 +129,8 @@ kubectl apply -f argo-webhook-go-reminders-sensor.yaml
 
 ### Install ArgoCD
 ```
-kubectl create namespace argocd
+kubectl create ns argocd
+kubens argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 ```
 
