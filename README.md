@@ -76,6 +76,7 @@ ca-issuer   True    70s
 ### Install Gitlab
 ```
 kubectl create ns gitlab
+kubens gitlab
 kubectl apply -f gitlab-certificate.yaml
 kubectl create secret generic gitlab-creds --from-literal=username=nness --from-literal=password='VMware1!'
 helm install gitlab gitlab/gitlab -f gitlab-values.yaml
