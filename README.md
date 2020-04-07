@@ -80,14 +80,6 @@ kubectl apply -f gitlab-certificate.yaml
 kubectl create secret generic gitlab-creds --from-literal=username=nness --from-literal=password='VMware1!'
 helm install gitlab gitlab/gitlab -f gitlab-values.yaml
 ```
-```
-helm install gitlab gitlab/gitlab \
-  --set global.hosts.domain=gl.vballin.com \
-  --set global.edition=ce \
-  --set global.initialRootPassword.secret=gitlab-creds \
-  --set global.initialRootPassword.key=password \
-  --set certmanager-issuer.email=nathan79@gmail.com
-```
 
 ### Install Harbor
 ```
