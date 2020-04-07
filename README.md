@@ -60,6 +60,10 @@ kubectl apply --validate=false -f https://github.com/jetstack/cert-manager/relea
 
 Create a Root CA cert.
 
+```
+kubectl apply -f ca-secret.yaml
+kubectl apply -f ca-issuer.yaml
+```
 
 ## Install Artifact repo
 
