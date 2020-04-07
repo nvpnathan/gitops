@@ -85,6 +85,7 @@ helm install gitlab gitlab/gitlab -f gitlab-values.yaml
 ### Install Harbor
 ```
 kubectl create ns harbor
+kubens harbor
 kubectl apply -f harbor-certificate.yaml
 helm install harbor harbor/harbor \
   --set expose.type=loadBalancer \
