@@ -105,34 +105,6 @@ kubectl create secret generic harbor-creds --from-literal=username=admin --from-
 kubectl create secret generic harbor-cert --from-file=ca.crt
 ```
 
-## Workflow Controller configmap
-
-```
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: workflow-controller-configmap
-data:
-  config: |
-    dockerSockPath: /var/vcap/data/sys/run/docker/docker.sock
-    artifactRepository:
-      s3:
-        bucket: my-bucket
-        endpoint: argo-artifacts:9000
-        insecure: true
-        # accessKeySecret and secretKeySecret are secret selectors.
-        # It references the k8s secret named 'argo-artifacts'
-        # which was created during the minio helm install. The keys,
-        # 'accesskey' and 'secretkey', inside that secret are where the
-        # actual minio credentials are stored.
-        accessKeySecret:
-          name: argo-artifacts
-          key: accesskey
-        secretKeySecret:
-          name: argo-artifacts
-          key: secretkey
-```
-
 T/Sing
 SSL is a nightmare
 When submitting the accessToken secret for gitlab use --from-literal and not yaml
