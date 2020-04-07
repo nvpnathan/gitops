@@ -136,13 +136,15 @@ data:
 T/Sing
 SSL is a nightmare
 When submitting the accessToken secret for gitlab use --from-literal and not yaml
-            while true; do sleep 30; done;
-            echo '192.168.76.5 harbor.vballin.com' >> /etc/hosts &&
+
+Workflow T/Sing
+
+while true; do sleep 30; done;
+
+echo '192.168.76.5 harbor.vballin.com' >> /etc/hosts &&
+
 Ask why static serving files are not in the dockerfile
     - pointer to another repo
-
-
-curl -ski -H "Content-Type: application/json" -H "PRIVATE-TOKEN: Bc8cPFYEY2PycLdLdcxL" -X GET https://gitlab.gl.vballin.com/api/v4/projects/4/hooks
 
 
 curl -vv -ski -H "Content-Type: application/json" -H "PRIVATE-TOKEN: Bc8cPFYEY2PycLdLdcxL" -X POST https://gitlab.gl.vballin.com/api/v4/projects/4/hooks \
