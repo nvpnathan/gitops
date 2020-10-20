@@ -25,18 +25,18 @@ spec:
           image: argoproj/webhook-gateway:v0.12
           imagePullPolicy: Always
           command: ["/bin/webhook-gateway"]
-          volumeMounts:
-          - mountPath: /etc/ssl/certs/gitlab-cert.crt
-            subPath: gitlab-cert.crt
-            name: gitlab-cert
-          - mountPath: /etc/ssl/certs/vballin-ca.crt
-            subPath: vballin-ca.crt
-            name: gitlab-cert
-      volumes:
-      - name: gitlab-cert
-        secret:
-          defaultMode: 420
-          secretName: gitlab-cert
+      #     volumeMounts:
+      #     - mountPath: /etc/ssl/certs/gitlab-cert.crt
+      #       subPath: gitlab-cert.crt
+      #       name: gitlab-cert
+      #     - mountPath: /etc/ssl/certs/vballin-ca.crt
+      #       subPath: vballin-ca.crt
+      #       name: gitlab-cert
+      # volumes:
+      # - name: gitlab-cert
+      #   secret:
+      #     defaultMode: 420
+      #     secretName: gitlab-cert
       serviceAccountName: argo-events-sa
   service:
     metadata:

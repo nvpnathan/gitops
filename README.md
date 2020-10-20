@@ -55,7 +55,7 @@ kubens cert-manager
 ```
 Install cert-manager
 ```
-kubectl apply --validate=false -f https://github.com/jetstack/cert-manager/releases/download/v0.14.1/cert-manager.yaml
+kubectl apply --validate=false -f https://github.com/jetstack/cert-manager/releases/download/v0.15.1/cert-manager.yaml
 ```
 
 Create a Root CA cert.
